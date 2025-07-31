@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Panaptico Mission: Compute Resources for EC2 Migration. Creates Launch Template and Auto Scaling Group.'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: An environment name that is prefixed to resource names.
+    Default: staging
+  NetworkStackName:
+    Type: String
+    Description: Name of the CloudFormation stack that created the network resources.
+  IamStackName:
+    Type: String
+    Description: Name of the CloudFormation stack that created the IAM resources.
+  KeyName:
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances.
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: The latest Amazon Linux 2 AMI ID.
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  InstanceType:
+    Type: String
+    Description: The EC2 instance type for the new instances.
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - m6g.medium
+      - m6g.large
+
+Resources:
+  AppServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Enable HTTP access and SSH'
+      VpcId: !ImportValue
+        Fn::Sub: '${NetworkStackName}-VPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.0.0/8 # Restrict to internal IPs
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-App-SG'
+
+  AppLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: !Sub '${EnvironmentName}-App-Launch-Template'
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        IamInstanceProfile:
+          Arn: !ImportValue
+            Fn::Sub: '${IamStackName}-InstanceProfileArn'
+        SecurityGroupIds:
+          - !Ref AppServerSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+            echo '<h1>Hello from Panaptico Mission Control!</h1>' > /var/www/html/index.html
+
+  AppAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      VPCZoneIdentifier:
+        - !Select [0, !Split [',', !ImportValue {Fn::Sub: '${NetworkStackName}-PrivateSubnetIds'}]]
+        - !Select [1, !Split [',', !ImportValue {Fn::Sub: '${NetworkStackName}-PrivateSubnetIds'}]]
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AppLaunchTemplate
+        Version: !GetAtt AppLaunchTemplate.LatestVersionNumber
+      MinSize: '2'
+      MaxSize: '4'
+      DesiredCapacity: '2'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-App-Instance'
+          PropagateAtLaunch: true
+        - Key: panaptico-mission-id
+          Value: 'ec2-migration-0d192e18'
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: '1'
+        MaxBatchSize: '1'
+        PauseTime: PT5M
+        WaitOnResourceSignals: true
+
+Outputs:
+  AutoScalingGroupName:
+    Description: The name of the Auto Scaling Group.
+    Value: !Ref AppAutoScalingGroup
