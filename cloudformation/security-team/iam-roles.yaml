@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Panaptico Mission: IAM Roles for EC2 Instances.'
+
+Parameters:
+  KmsStackName:
+    Type: String
+    Description: Name of the CloudFormation stack that created the KMS key.
+
+Resources:
+  EC2InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 'PanapticoEC2InstanceRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Policies:
+        - PolicyName: 'KMS-EBS-Access'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'kms:Encrypt'
+                  - 'kms:Decrypt'
+                  - 'kms:ReEncrypt*'
+                  - 'kms:GenerateDataKey*'
+                  - 'kms:DescribeKey'
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: '${KmsStackName}-KeyArn'
+
+  EC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: 'PanapticoEC2InstanceProfile'
+      Roles:
+        - !Ref EC2InstanceRole
+
+Outputs:
+  InstanceProfileArn:
+    Description: ARN of the EC2 instance profile.
+    Value: !GetAtt EC2InstanceProfile.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceProfileArn'
