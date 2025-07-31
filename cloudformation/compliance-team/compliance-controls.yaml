@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Panaptico Mission: AWS Config Rules for Compliance.'
+
+Resources:
+  RequiredTagsRule:
+    Type: 'AWS::Config::ConfigRule'
+    Properties:
+      ConfigRuleName: 'panaptico-required-tags'
+      Description: 'Checks if EC2 instances have the required tags: panaptico-mission-id and Name.'
+      Source:
+        Owner: AWS
+        SourceIdentifier: REQUIRED_TAGS
+      InputParameters:
+        tag1Key: panaptico-mission-id
+        tag2Key: Name
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::EC2::Instance'
+
+  EncryptedVolumesRule:
+    Type: 'AWS::Config::ConfigRule'
+    Properties:
+      ConfigRuleName: 'panaptico-encrypted-volumes'
+      Description: 'Checks whether EBS volumes are encrypted.'
+      Source:
+        Owner: AWS
+        SourceIdentifier: ENCRYPTED_VOLUMES
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::EC2::Volume'
